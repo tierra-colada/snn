@@ -26,6 +26,8 @@ If you build from source and need a custom OpenBLAS location, you can pass paths
 OPENBLAS_DIR=/path/to/OpenBLAS pip install .
 # or explicitly:
 OPENBLAS_INCLUDE_DIR=/path/to/OpenBLAS/include OPENBLAS_LIB_DIR=/path/to/OpenBLAS/lib pip install .
+# Optional: set library basename (default on Linux/macOS is "blas")
+OPENBLAS_LIB_NAME=openblas OPENBLAS_DIR=/path/to/OpenBLAS pip install .
 ```
 
 ```powershell
@@ -35,6 +37,8 @@ pip install .
 # or explicitly:
 $env:OPENBLAS_INCLUDE_DIR='D:\path\to\OpenBLAS\include'
 $env:OPENBLAS_LIB_DIR='D:\path\to\OpenBLAS\lib'
+# Optional: override library basename (default on Windows is "libopenblas")
+$env:OPENBLAS_LIB_NAME='libopenblas'
 pip install .
 ```
 
@@ -74,6 +78,18 @@ print("indices of closest five:", ", ".join([str(i) for i in ind[sort_ind][:5]])
 # number of neighbors: 550
 # indices of closest five: 0, 27279, 69983, 65906, 97095
 ```
+
+For the compiled `pybind11` backend (`snnpy.snnomp`), advanced radius query methods are available:
+
+* `query_radius_advanced(...)`
+* `query_radius_batch_advanced(...)`
+
+They support:
+* `metric`: `"euclidean"`, `"sqeuclidean"`, `"manhattan"`, `"chebyshev"`, `"minkowski"`, `"cosine"` (similar to common `scikit-learn` metrics).
+* `groups`: integer array of shape `(n_samples,)`.
+* `max_per_group`: cap on neighbors returned from each group.
+* `return_distance`: optionally return distances together with indices.
+* `p`: Minkowski power (used when `metric="minkowski"`).
 
 Compare this to sklearn's KDTree:
 

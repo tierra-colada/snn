@@ -47,6 +47,16 @@ def _openblas_paths_from_env():
     library_dirs = [lib_dir] if lib_dir else []
     return include_dirs, library_dirs
 
+
+def _openblas_library_name(default_name):
+    """
+    Resolve OpenBLAS library name from environment variable.
+
+    Supported variable:
+      - OPENBLAS_LIB_NAME
+    """
+    return _env_path("OPENBLAS_LIB_NAME") or default_name
+
 # Platform-specific arguments
 extra_compile_args = ['-O3']
 extra_link_args = []
@@ -61,7 +71,7 @@ elif os.name == "posix":  # Linux
     extra_link_args.append('-fopenmp')
 elif os.name == "nt":  # Windows
     extra_compile_args.append('/openmp')  # MSVC
-    libraries = ['openblas']
+    libraries = [_openblas_library_name('libopenblas')]
 
 snn_module = Pybind11Extension(
     'snnpy.snnomp',  
