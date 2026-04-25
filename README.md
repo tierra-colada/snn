@@ -19,6 +19,25 @@ The native Python implementation of SNN can be installed by:
 pip install snnpy
 ```
 
+If you build from source and need a custom OpenBLAS location, you can pass paths via environment variables:
+
+```sh
+# Linux/macOS
+OPENBLAS_DIR=/path/to/OpenBLAS pip install .
+# or explicitly:
+OPENBLAS_INCLUDE_DIR=/path/to/OpenBLAS/include OPENBLAS_LIB_DIR=/path/to/OpenBLAS/lib pip install .
+```
+
+```powershell
+# Windows (PowerShell)
+$env:OPENBLAS_DIR='D:\path\to\OpenBLAS'
+pip install .
+# or explicitly:
+$env:OPENBLAS_INCLUDE_DIR='D:\path\to\OpenBLAS\include'
+$env:OPENBLAS_LIB_DIR='D:\path\to\OpenBLAS\lib'
+pip install .
+```
+
 ### Usage
 
 ```python
@@ -82,4 +101,3 @@ All the content in this repository is licensed under the MIT License.
 ```
 Chen X, Güttel S. 2024. Fast and exact fixed-radius neighbor search based on sorting. PeerJ Computer Science 10:e1929 https://doi.org/10.7717/peerj-cs.1929
 ```
-
