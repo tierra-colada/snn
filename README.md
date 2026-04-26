@@ -102,6 +102,8 @@ KNN methods are also available in the compiled backend:
 
 For KNN, if `groups` and positive `max_per_group` are provided, the method returns up to `k` nearest neighbors while limiting each group count by `max_per_group`.
 
+For `query_radius_advanced` / `query_radius_batch_advanced`, if `groups=None`, `max_per_group<=0`, `metric="euclidean"` and `return_distance=False`, the implementation uses the faster non-group radius path (no per-group limiting logic).
+
 Compare this to sklearn's KDTree:
 
 ```python

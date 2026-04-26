@@ -312,6 +312,9 @@ public:
         bool fallback_to_nearest_if_empty = false
     ) const {
         auto metric_type = parse_metric(metric);
+        if (groups.is_none() && max_per_group <= 0 && metric_type == MetricType::Euclidean && !return_distance) {
+            return py::cast(query_radius(new_data, R, fallback_to_nearest_if_empty));
+        }
         auto buf = new_data.request();
         if (buf.ndim != 1 || buf.shape[0] != d) throw std::runtime_error("New data must be 1D array of length d");
 
@@ -682,6 +685,9 @@ public:
         bool fallback_to_nearest_if_empty = false
     ) const {
         auto metric_type = parse_metric(metric);
+        if (groups.is_none() && max_per_group <= 0 && metric_type == MetricType::Euclidean && !return_distance) {
+            return py::cast(query_radius_batch(new_data, R, fallback_to_nearest_if_empty));
+        }
         auto buf = new_data.request();
         if (buf.ndim != 2 || buf.shape[1] != d) throw std::runtime_error("New data must be 2D array with columns = d");
         int m = buf.shape[0];
