@@ -19,6 +19,29 @@ The native Python implementation of SNN can be installed by:
 pip install snnpy
 ```
 
+If you build from source and need a custom OpenBLAS location, you can pass paths via environment variables:
+
+```sh
+# Linux/macOS
+OPENBLAS_DIR=/path/to/OpenBLAS pip install .
+# or explicitly:
+OPENBLAS_INCLUDE_DIR=/path/to/OpenBLAS/include OPENBLAS_LIB_DIR=/path/to/OpenBLAS/lib pip install .
+# Optional: set library basename (default on Linux/macOS is "blas")
+OPENBLAS_LIB_NAME=openblas OPENBLAS_DIR=/path/to/OpenBLAS pip install .
+```
+
+```powershell
+# Windows (PowerShell)
+$env:OPENBLAS_DIR='D:\path\to\OpenBLAS'
+pip install .
+# or explicitly:
+$env:OPENBLAS_INCLUDE_DIR='D:\path\to\OpenBLAS\include'
+$env:OPENBLAS_LIB_DIR='D:\path\to\OpenBLAS\lib'
+# Optional: override library basename (default on Windows is "libopenblas")
+$env:OPENBLAS_LIB_NAME='libopenblas'
+pip install .
+```
+
 ### Usage
 
 ```python
@@ -56,6 +79,36 @@ print("indices of closest five:", ", ".join([str(i) for i in ind[sort_ind][:5]])
 # indices of closest five: 0, 27279, 69983, 65906, 97095
 ```
 
+For the compiled `pybind11` backend (`snnpy.snnomp`), advanced radius query methods are available:
+
+* `query_radius_advanced(...)`
+* `query_radius_batch_advanced(...)`
+
+They support:
+* `metric`: `"euclidean"`, `"sqeuclidean"`, `"manhattan"`, `"chebyshev"`, `"minkowski"`, `"cosine"` (similar to common `scikit-learn` metrics).
+* `groups`: integer array of shape `(n_samples,)`.
+* `max_per_group`: cap on neighbors returned from each group.
+* `return_distance`: optionally return distances together with indices.
+* `p`: Minkowski power (used when `metric="minkowski"`).
+* `fallback_to_nearest_if_empty`: if `True`, returns the nearest point when no neighbors are found inside radius (default `False` keeps current behavior).
+
+The same fallback flag is also available in standard methods:
+* `query_radius(..., fallback_to_nearest_if_empty=False)`
+* `query_radius_batch(..., fallback_to_nearest_if_empty=False)`
+
+KNN methods are also available in the compiled backend:
+* `query_knn(new_data, k, return_distance=False, groups=None, max_per_group=-1)`
+* `query_knn_batch(new_data, k, return_distance=False, groups=None, max_per_group=-1)`
+  
+KNN methods also support metric selection like advanced radius methods via:
+* `metric`: `"euclidean"`, `"sqeuclidean"`, `"manhattan"`, `"chebyshev"`, `"minkowski"`, `"cosine"`
+* `p`: Minkowski power (used when `metric="minkowski"`).
+
+For KNN, if `groups` and positive `max_per_group` are provided, the method returns up to `k` nearest neighbors while limiting each group count by `max_per_group`.
+
+For `query_radius_advanced` / `query_radius_batch_advanced`, if `groups=None`, `max_per_group<=0`, `metric="euclidean"` and `return_distance=False`, the implementation uses the faster non-group radius path (no per-group limiting logic).
+Batch compiled methods return Python lists of NumPy arrays (not Python int lists), which is much more memory-efficient for large outputs.
+
 Compare this to sklearn's KDTree:
 
 ```python
@@ -82,4 +135,3 @@ All the content in this repository is licensed under the MIT License.
 ```
 Chen X, Güttel S. 2024. Fast and exact fixed-radius neighbor search based on sorting. PeerJ Computer Science 10:e1929 https://doi.org/10.7717/peerj-cs.1929
 ```
-

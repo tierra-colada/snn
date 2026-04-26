@@ -20,22 +20,66 @@ class CustomBuildExtCommand(build_ext):
         self.include_dirs.append(numpy.get_include())
         build_ext.run(self)
 
+
+def _env_path(name):
+    value = os.environ.get(name)
+    return value.strip() if value and value.strip() else None
+
+
+def _openblas_paths_from_env():
+    """
+    Resolve OpenBLAS include/lib directories from environment variables.
+
+    Supported variables:
+      - OPENBLAS_DIR (root folder that contains include/ and lib/)
+      - OPENBLAS_INCLUDE_DIR
+      - OPENBLAS_LIB_DIR
+    """
+    openblas_root = _env_path("OPENBLAS_DIR")
+    include_dir = _env_path("OPENBLAS_INCLUDE_DIR")
+    lib_dir = _env_path("OPENBLAS_LIB_DIR")
+
+    if openblas_root:
+        include_dir = include_dir or os.path.join(openblas_root, "include")
+        lib_dir = lib_dir or os.path.join(openblas_root, "lib")
+
+    include_dirs = [include_dir] if include_dir else []
+    library_dirs = [lib_dir] if lib_dir else []
+    return include_dirs, library_dirs
+
+
+def _openblas_library_name(default_name):
+    """
+    Resolve OpenBLAS library name from environment variable.
+
+    Supported variable:
+      - OPENBLAS_LIB_NAME
+    """
+    return _env_path("OPENBLAS_LIB_NAME") or default_name
+
 # Platform-specific arguments
-extra_compile_args = ['-O3']
-extra_link_args = ['-lblas']
+extra_compile_args = ['/O2'] if os.name == "nt" else ['-O3']
+extra_link_args = []
+libraries = ['blas']
+include_dirs, library_dirs = _openblas_paths_from_env()
+
 if os.name == "posix" and "darwin" in os.sys.platform:  # macOS
     extra_compile_args.extend(['-Xpreprocessor', '-fopenmp'])
-    extra_link_args.extend(['-lomp', '-L/usr/local/opt/openblas/lib'])
+    extra_link_args.extend(['-lomp'])
 elif os.name == "posix":  # Linux
     extra_compile_args.append('-fopenmp')
     extra_link_args.append('-fopenmp')
 elif os.name == "nt":  # Windows
     extra_compile_args.append('/openmp')  # MSVC
+    libraries = [_openblas_library_name('libopenblas')]
 
 snn_module = Pybind11Extension(
     'snnpy.snnomp',  
     sources=['snnpy/snnpy.cpp'],
     define_macros=[("VERSION_INFO", __version__)],
+    include_dirs=include_dirs,
+    library_dirs=library_dirs,
+    libraries=libraries,
     extra_compile_args=extra_compile_args,
     extra_link_args=extra_link_args,
     language='c++',
