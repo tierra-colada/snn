@@ -150,6 +150,39 @@ private:
         }
     }
 
+    py::array_t<int64_t> to_numpy_indices(const std::vector<int>& src) const {
+        py::array_t<int64_t> arr(src.size());
+        auto out = arr.mutable_unchecked<1>();
+        for (ssize_t i = 0; i < static_cast<ssize_t>(src.size()); ++i) out(i) = static_cast<int64_t>(src[i]);
+        return arr;
+    }
+
+    py::array_t<T> to_numpy_distances(const std::vector<T>& src) const {
+        py::array_t<T> arr(src.size());
+        auto out = arr.template mutable_unchecked<1>();
+        for (ssize_t i = 0; i < static_cast<ssize_t>(src.size()); ++i) out(i) = src[i];
+        return arr;
+    }
+
+    py::list to_numpy_indices_list(const std::vector<std::vector<int>>& src) const {
+        py::list out;
+        for (const auto& row : src) out.append(to_numpy_indices(row));
+        return out;
+    }
+
+    py::tuple to_numpy_indices_distances_tuple(
+        const std::vector<std::vector<int>>& indices,
+        const std::vector<std::vector<T>>& distances
+    ) const {
+        py::list idx_out;
+        py::list dist_out;
+        for (size_t i = 0; i < indices.size(); ++i) {
+            idx_out.append(to_numpy_indices(indices[i]));
+            dist_out.append(to_numpy_distances(distances[i]));
+        }
+        return py::make_tuple(idx_out, dist_out);
+    }
+
 public:
     std::vector<T> mean;
     std::vector<T> first_pc;
@@ -418,7 +451,7 @@ public:
         return py::cast(indices);
     }
 
-    std::vector<std::vector<int>> query_radius_batch(py::array_t<T> new_data, T R, bool fallback_to_nearest_if_empty = false) const {
+    py::list query_radius_batch(py::array_t<T> new_data, T R, bool fallback_to_nearest_if_empty = false) const {
         auto buf = new_data.request();
         if (buf.ndim != 2 || buf.shape[1] != d) throw std::runtime_error("New data must be 2D array with columns = d");
         int m = buf.shape[0];
@@ -496,7 +529,7 @@ public:
                 if (best_idx >= 0) indices.push_back(best_idx);
             }
         }
-        return all_indices;
+        return to_numpy_indices_list(all_indices);
     }
 
     py::object query_knn(
@@ -670,8 +703,8 @@ public:
             }
         }
 
-        if (return_distance) return py::make_tuple(all_indices, all_distances);
-        return py::cast(all_indices);
+        if (return_distance) return to_numpy_indices_distances_tuple(all_indices, all_distances);
+        return to_numpy_indices_list(all_indices);
     }
 
     py::object query_radius_batch_advanced(
@@ -686,7 +719,7 @@ public:
     ) const {
         auto metric_type = parse_metric(metric);
         if (groups.is_none() && max_per_group <= 0 && metric_type == MetricType::Euclidean && !return_distance) {
-            return py::cast(query_radius_batch(new_data, R, fallback_to_nearest_if_empty));
+            return query_radius_batch(new_data, R, fallback_to_nearest_if_empty);
         }
         auto buf = new_data.request();
         if (buf.ndim != 2 || buf.shape[1] != d) throw std::runtime_error("New data must be 2D array with columns = d");
@@ -805,8 +838,8 @@ public:
             }
         }
 
-        if (return_distance) return py::make_tuple(all_indices, all_distances);
-        return py::cast(all_indices);
+        if (return_distance) return to_numpy_indices_distances_tuple(all_indices, all_distances);
+        return to_numpy_indices_list(all_indices);
     }
 
     void set_num_threads(int num_threads) {
