@@ -293,7 +293,8 @@ public:
         bool return_distance = false,
         py::object groups = py::none(),
         int max_per_group = -1,
-        T p = T(2.0)
+        T p = T(2.0),
+        bool fallback_to_nearest_if_empty = false
     ) const {
         auto metric_type = parse_metric(metric);
         auto buf = new_data.request();
@@ -350,16 +351,47 @@ public:
                     if (return_distance) distances.push_back(metric_type == MetricType::Euclidean ? std::sqrt(dist_sq) : dist_sq);
                 }
             }
+
+            if (fallback_to_nearest_if_empty && indices.empty()) {
+                T best_dist_sq = std::numeric_limits<T>::max();
+                int best_idx = -1;
+                for (int idx = 0; idx < n; ++idx) {
+                    T norm_sq = std::get<2>(sorted_proj_idx[idx]);
+                    int raw_idx = std::get<1>(sorted_proj_idx[idx]);
+                    T dot_xy = dot_products[raw_idx];
+                    T dist_sq = norm_sq + new_norm_sq - T(2.0) * dot_xy;
+                    if (dist_sq < best_dist_sq) {
+                        best_dist_sq = dist_sq;
+                        best_idx = raw_idx;
+                    }
+                }
+                if (best_idx >= 0) {
+                    indices.push_back(best_idx);
+                    if (return_distance) {
+                        distances.push_back(metric_type == MetricType::Euclidean ? std::sqrt(best_dist_sq) : best_dist_sq);
+                    }
+                }
+            }
         } else {
             indices.reserve(n);
             if (return_distance) distances.reserve(n);
+            T best_dist = std::numeric_limits<T>::max();
+            int best_idx = -1;
             for (int idx = 0; idx < n; ++idx) {
                 const T* xi = data.data() + idx * d;
                 T dist = compute_distance_from_raw(xi, centered.data(), metric_type, p);
+                if (dist < best_dist) {
+                    best_dist = dist;
+                    best_idx = idx;
+                }
                 if (dist <= R) {
                     indices.push_back(idx);
                     if (return_distance) distances.push_back(dist);
                 }
+            }
+            if (fallback_to_nearest_if_empty && indices.empty() && best_idx >= 0) {
+                indices.push_back(best_idx);
+                if (return_distance) distances.push_back(best_dist);
             }
         }
 
@@ -441,7 +473,8 @@ public:
         bool return_distance = false,
         py::object groups = py::none(),
         int max_per_group = -1,
-        T p = T(2.0)
+        T p = T(2.0),
+        bool fallback_to_nearest_if_empty = false
     ) const {
         auto metric_type = parse_metric(metric);
         auto buf = new_data.request();
@@ -511,6 +544,24 @@ public:
                     }
                 }
                 apply_group_limit(indices, distances, groups_ptr, max_per_group);
+                if (fallback_to_nearest_if_empty && indices.empty()) {
+                    T best_dist_sq = std::numeric_limits<T>::max();
+                    int best_idx = -1;
+                    for (int idx = 0; idx < n; ++idx) {
+                        T norm_sq = std::get<2>(sorted_proj_idx[idx]);
+                        int raw_idx = std::get<1>(sorted_proj_idx[idx]);
+                        T dot_xy = dot_products[raw_idx];
+                        T dist_sq = norm_sq + new_norm_sq[j] - T(2.0) * dot_xy;
+                        if (dist_sq < best_dist_sq) {
+                            best_dist_sq = dist_sq;
+                            best_idx = raw_idx;
+                        }
+                    }
+                    if (best_idx >= 0) {
+                        indices.push_back(best_idx);
+                        if (distances) distances->push_back(metric_type == MetricType::Euclidean ? std::sqrt(best_dist_sq) : best_dist_sq);
+                    }
+                }
             }
         } else {
             #pragma omp parallel for schedule(dynamic)
@@ -520,16 +571,26 @@ public:
                 std::vector<T>* distances = return_distance ? &all_distances[j] : nullptr;
                 indices.reserve(n);
                 if (distances) distances->reserve(n);
+                T best_dist = std::numeric_limits<T>::max();
+                int best_idx = -1;
 
                 for (int idx = 0; idx < n; ++idx) {
                     const T* xi = data.data() + idx * d;
                     T dist = compute_distance_from_raw(xi, qj, metric_type, p);
+                    if (dist < best_dist) {
+                        best_dist = dist;
+                        best_idx = idx;
+                    }
                     if (dist <= R) {
                         indices.push_back(idx);
                         if (distances) distances->push_back(dist);
                     }
                 }
                 apply_group_limit(indices, distances, groups_ptr, max_per_group);
+                if (fallback_to_nearest_if_empty && indices.empty() && best_idx >= 0) {
+                    indices.push_back(best_idx);
+                    if (distances) distances->push_back(best_dist);
+                }
             }
         }
 
@@ -555,11 +616,13 @@ PYBIND11_MODULE(snnomp, m) {
         .def("query_radius_advanced", &SNN_FLOAT::query_radius_advanced,
              py::arg("new_data"), py::arg("R"), py::arg("metric") = "euclidean",
              py::arg("return_distance") = false, py::arg("groups") = py::none(),
-             py::arg("max_per_group") = -1, py::arg("p") = 2.0f)
+             py::arg("max_per_group") = -1, py::arg("p") = 2.0f,
+             py::arg("fallback_to_nearest_if_empty") = false)
         .def("query_radius_batch_advanced", &SNN_FLOAT::query_radius_batch_advanced,
              py::arg("new_data"), py::arg("R"), py::arg("metric") = "euclidean",
              py::arg("return_distance") = false, py::arg("groups") = py::none(),
-             py::arg("max_per_group") = -1, py::arg("p") = 2.0f)
+             py::arg("max_per_group") = -1, py::arg("p") = 2.0f,
+             py::arg("fallback_to_nearest_if_empty") = false)
         .def("set_num_threads", &SNN_FLOAT::set_num_threads)
         .def_readonly("mean", &SNN_FLOAT::mean)
         .def_readonly("first_pc", &SNN_FLOAT::first_pc);
@@ -571,11 +634,13 @@ PYBIND11_MODULE(snnomp, m) {
         .def("query_radius_advanced", &SNN_DOUBLE::query_radius_advanced,
              py::arg("new_data"), py::arg("R"), py::arg("metric") = "euclidean",
              py::arg("return_distance") = false, py::arg("groups") = py::none(),
-             py::arg("max_per_group") = -1, py::arg("p") = 2.0)
+             py::arg("max_per_group") = -1, py::arg("p") = 2.0,
+             py::arg("fallback_to_nearest_if_empty") = false)
         .def("query_radius_batch_advanced", &SNN_DOUBLE::query_radius_batch_advanced,
              py::arg("new_data"), py::arg("R"), py::arg("metric") = "euclidean",
              py::arg("return_distance") = false, py::arg("groups") = py::none(),
-             py::arg("max_per_group") = -1, py::arg("p") = 2.0)
+             py::arg("max_per_group") = -1, py::arg("p") = 2.0,
+             py::arg("fallback_to_nearest_if_empty") = false)
         .def("set_num_threads", &SNN_DOUBLE::set_num_threads)
         .def_readonly("mean", &SNN_DOUBLE::mean)
         .def_readonly("first_pc", &SNN_DOUBLE::first_pc);

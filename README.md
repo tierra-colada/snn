@@ -90,6 +90,7 @@ They support:
 * `max_per_group`: cap on neighbors returned from each group.
 * `return_distance`: optionally return distances together with indices.
 * `p`: Minkowski power (used when `metric="minkowski"`).
+* `fallback_to_nearest_if_empty`: if `True`, returns the nearest point when no neighbors are found inside radius (default `False` keeps current behavior).
 
 Compare this to sklearn's KDTree:
 
