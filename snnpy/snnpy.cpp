@@ -537,9 +537,12 @@ public:
         int k,
         bool return_distance = false,
         py::object groups = py::none(),
-        int max_per_group = -1
+        int max_per_group = -1,
+        std::string metric = "euclidean",
+        T p = T(2.0)
     ) const {
         if (k <= 0) throw std::runtime_error("k must be > 0");
+        auto metric_type = parse_metric(metric);
         auto buf = new_data.request();
         if (buf.ndim != 1 || buf.shape[0] != d) throw std::runtime_error("New data must be 1D array of length d");
 
@@ -554,26 +557,35 @@ public:
         std::vector<T> centered(d);
         for (int j = 0; j < d; ++j) centered[j] = static_cast<T*>(buf.ptr)[j] - mean[j];
 
-        T new_norm_sq;
-        if constexpr (std::is_same_v<T, float>) new_norm_sq = cblas_sdot(d, centered.data(), 1, centered.data(), 1);
-        else new_norm_sq = cblas_ddot(d, centered.data(), 1, centered.data(), 1);
-
-        std::vector<T> dot_products(n);
-        if constexpr (std::is_same_v<T, float>) {
-            cblas_sgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0f, data.data(), d, centered.data(), 1, 0.0f, dot_products.data(), 1);
-        } else {
-            cblas_dgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0, data.data(), d, centered.data(), 1, 0.0, dot_products.data(), 1);
-        }
-
         std::vector<int> out_idx;
         std::vector<T> out_dist;
+        std::vector<std::pair<T, int>> dist_idx(n);
+
+        if (metric_type == MetricType::Euclidean || metric_type == MetricType::SqEuclidean) {
+            T new_norm_sq;
+            if constexpr (std::is_same_v<T, float>) new_norm_sq = cblas_sdot(d, centered.data(), 1, centered.data(), 1);
+            else new_norm_sq = cblas_ddot(d, centered.data(), 1, centered.data(), 1);
+
+            std::vector<T> dot_products(n);
+            if constexpr (std::is_same_v<T, float>) {
+                cblas_sgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0f, data.data(), d, centered.data(), 1, 0.0f, dot_products.data(), 1);
+            } else {
+                cblas_dgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0, data.data(), d, centered.data(), 1, 0.0, dot_products.data(), 1);
+            }
+            for (int idx = 0; idx < n; ++idx) {
+                int raw_idx = std::get<1>(sorted_proj_idx[idx]);
+                T dist_sq = std::get<2>(sorted_proj_idx[idx]) + new_norm_sq - T(2.0) * dot_products[raw_idx];
+                dist_idx[idx] = {dist_sq, raw_idx};
+            }
+        } else {
+            for (int idx = 0; idx < n; ++idx) {
+                const T* xi = data.data() + idx * d;
+                T dist = compute_distance_from_raw(xi, centered.data(), metric_type, p);
+                dist_idx[idx] = {dist, idx};
+            }
+        }
 
         if (!groups_ptr && max_per_group <= 0) {
-            std::vector<std::pair<T, int>> dist_idx(n);
-            for (int idx = 0; idx < n; ++idx) {
-                T dist_sq = std::get<2>(sorted_proj_idx[idx]) + new_norm_sq - T(2.0) * dot_products[std::get<1>(sorted_proj_idx[idx])];
-                dist_idx[idx] = {dist_sq, std::get<1>(sorted_proj_idx[idx])};
-            }
             int kk = std::min(k, n);
             if (kk < n) {
                 std::nth_element(dist_idx.begin(), dist_idx.begin() + kk, dist_idx.end(),
@@ -585,14 +597,12 @@ public:
             if (return_distance) out_dist.reserve(kk);
             for (const auto& item : dist_idx) {
                 out_idx.push_back(item.second);
-                if (return_distance) out_dist.push_back(std::sqrt(item.first));
+                if (return_distance) {
+                    if (metric_type == MetricType::Euclidean) out_dist.push_back(std::sqrt(item.first));
+                    else out_dist.push_back(item.first);
+                }
             }
         } else {
-            std::vector<std::pair<T, int>> dist_idx(n);
-            for (int idx = 0; idx < n; ++idx) {
-                T dist_sq = std::get<2>(sorted_proj_idx[idx]) + new_norm_sq - T(2.0) * dot_products[std::get<1>(sorted_proj_idx[idx])];
-                dist_idx[idx] = {dist_sq, std::get<1>(sorted_proj_idx[idx])};
-            }
             std::sort(dist_idx.begin(), dist_idx.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
             std::unordered_map<int, int> per_group_count;
             out_idx.reserve(std::min(k, n));
@@ -607,7 +617,10 @@ public:
                     ++used;
                 }
                 out_idx.push_back(idx);
-                if (return_distance) out_dist.push_back(std::sqrt(item.first));
+                if (return_distance) {
+                    if (metric_type == MetricType::Euclidean) out_dist.push_back(std::sqrt(item.first));
+                    else out_dist.push_back(item.first);
+                }
             }
         }
 
@@ -620,9 +633,12 @@ public:
         int k,
         bool return_distance = false,
         py::object groups = py::none(),
-        int max_per_group = -1
+        int max_per_group = -1,
+        std::string metric = "euclidean",
+        T p = T(2.0)
     ) const {
         if (k <= 0) throw std::runtime_error("k must be > 0");
+        auto metric_type = parse_metric(metric);
         auto buf = new_data.request();
         if (buf.ndim != 2 || buf.shape[1] != d) throw std::runtime_error("New data must be 2D array with columns = d");
         int m = buf.shape[0];
@@ -639,31 +655,42 @@ public:
         #pragma omp parallel for collapse(2) schedule(static)
         for (int i = 0; i < m; ++i) for (int j = 0; j < d; ++j) centered[i * d + j] = static_cast<T*>(buf.ptr)[i * d + j] - mean[j];
 
-        std::vector<T> new_norm_sq(m);
-        #pragma omp parallel for schedule(static)
-        for (int i = 0; i < m; ++i) {
-            if constexpr (std::is_same_v<T, float>) new_norm_sq[i] = cblas_sdot(d, centered.data() + i * d, 1, centered.data() + i * d, 1);
-            else new_norm_sq[i] = cblas_ddot(d, centered.data() + i * d, 1, centered.data() + i * d, 1);
-        }
-
         std::vector<std::vector<int>> all_indices(m);
         std::vector<std::vector<T>> all_distances;
         if (return_distance) all_distances.resize(m);
 
+        std::vector<T> new_norm_sq;
+        if (metric_type == MetricType::Euclidean || metric_type == MetricType::SqEuclidean) {
+            new_norm_sq.resize(m);
+            #pragma omp parallel for schedule(static)
+            for (int i = 0; i < m; ++i) {
+                if constexpr (std::is_same_v<T, float>) new_norm_sq[i] = cblas_sdot(d, centered.data() + i * d, 1, centered.data() + i * d, 1);
+                else new_norm_sq[i] = cblas_ddot(d, centered.data() + i * d, 1, centered.data() + i * d, 1);
+            }
+        }
+
         #pragma omp parallel for schedule(dynamic)
         for (int qi = 0; qi < m; ++qi) {
-            std::vector<T> dot_products(n);
-            if constexpr (std::is_same_v<T, float>) {
-                cblas_sgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0f, data.data(), d, centered.data() + qi * d, 1, 0.0f, dot_products.data(), 1);
-            } else {
-                cblas_dgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0, data.data(), d, centered.data() + qi * d, 1, 0.0, dot_products.data(), 1);
-            }
-
             std::vector<std::pair<T, int>> dist_idx(n);
-            for (int i = 0; i < n; ++i) {
-                int raw_idx = std::get<1>(sorted_proj_idx[i]);
-                T dist_sq = std::get<2>(sorted_proj_idx[i]) + new_norm_sq[qi] - T(2.0) * dot_products[raw_idx];
-                dist_idx[i] = {dist_sq, raw_idx};
+            if (metric_type == MetricType::Euclidean || metric_type == MetricType::SqEuclidean) {
+                std::vector<T> dot_products(n);
+                if constexpr (std::is_same_v<T, float>) {
+                    cblas_sgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0f, data.data(), d, centered.data() + qi * d, 1, 0.0f, dot_products.data(), 1);
+                } else {
+                    cblas_dgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0, data.data(), d, centered.data() + qi * d, 1, 0.0, dot_products.data(), 1);
+                }
+                for (int i = 0; i < n; ++i) {
+                    int raw_idx = std::get<1>(sorted_proj_idx[i]);
+                    T dist_sq = std::get<2>(sorted_proj_idx[i]) + new_norm_sq[qi] - T(2.0) * dot_products[raw_idx];
+                    dist_idx[i] = {dist_sq, raw_idx};
+                }
+            } else {
+                const T* qj = centered.data() + qi * d;
+                for (int i = 0; i < n; ++i) {
+                    const T* xi = data.data() + i * d;
+                    T dist = compute_distance_from_raw(xi, qj, metric_type, p);
+                    dist_idx[i] = {dist, i};
+                }
             }
 
             std::vector<int>& out_idx = all_indices[qi];
@@ -681,7 +708,10 @@ public:
                 if (out_dist) out_dist->reserve(kk);
                 for (const auto& item : dist_idx) {
                     out_idx.push_back(item.second);
-                    if (out_dist) out_dist->push_back(std::sqrt(item.first));
+                    if (out_dist) {
+                        if (metric_type == MetricType::Euclidean) out_dist->push_back(std::sqrt(item.first));
+                        else out_dist->push_back(item.first);
+                    }
                 }
             } else {
                 std::sort(dist_idx.begin(), dist_idx.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
@@ -698,7 +728,10 @@ public:
                         ++used;
                     }
                     out_idx.push_back(idx);
-                    if (out_dist) out_dist->push_back(std::sqrt(item.first));
+                    if (out_dist) {
+                        if (metric_type == MetricType::Euclidean) out_dist->push_back(std::sqrt(item.first));
+                        else out_dist->push_back(item.first);
+                    }
                 }
             }
         }
@@ -860,9 +893,11 @@ PYBIND11_MODULE(snnomp, m) {
         .def("query_radius_batch", &SNN_FLOAT::query_radius_batch, py::arg("new_data"), py::arg("R"),
              py::arg("fallback_to_nearest_if_empty") = false)
         .def("query_knn", &SNN_FLOAT::query_knn, py::arg("new_data"), py::arg("k"),
-             py::arg("return_distance") = false, py::arg("groups") = py::none(), py::arg("max_per_group") = -1)
+             py::arg("return_distance") = false, py::arg("groups") = py::none(), py::arg("max_per_group") = -1,
+             py::arg("metric") = "euclidean", py::arg("p") = 2.0f)
         .def("query_knn_batch", &SNN_FLOAT::query_knn_batch, py::arg("new_data"), py::arg("k"),
-             py::arg("return_distance") = false, py::arg("groups") = py::none(), py::arg("max_per_group") = -1)
+             py::arg("return_distance") = false, py::arg("groups") = py::none(), py::arg("max_per_group") = -1,
+             py::arg("metric") = "euclidean", py::arg("p") = 2.0f)
         .def("query_radius_advanced", &SNN_FLOAT::query_radius_advanced,
              py::arg("new_data"), py::arg("R"), py::arg("metric") = "euclidean",
              py::arg("return_distance") = false, py::arg("groups") = py::none(),
@@ -884,9 +919,11 @@ PYBIND11_MODULE(snnomp, m) {
         .def("query_radius_batch", &SNN_DOUBLE::query_radius_batch, py::arg("new_data"), py::arg("R"),
              py::arg("fallback_to_nearest_if_empty") = false)
         .def("query_knn", &SNN_DOUBLE::query_knn, py::arg("new_data"), py::arg("k"),
-             py::arg("return_distance") = false, py::arg("groups") = py::none(), py::arg("max_per_group") = -1)
+             py::arg("return_distance") = false, py::arg("groups") = py::none(), py::arg("max_per_group") = -1,
+             py::arg("metric") = "euclidean", py::arg("p") = 2.0)
         .def("query_knn_batch", &SNN_DOUBLE::query_knn_batch, py::arg("new_data"), py::arg("k"),
-             py::arg("return_distance") = false, py::arg("groups") = py::none(), py::arg("max_per_group") = -1)
+             py::arg("return_distance") = false, py::arg("groups") = py::none(), py::arg("max_per_group") = -1,
+             py::arg("metric") = "euclidean", py::arg("p") = 2.0)
         .def("query_radius_advanced", &SNN_DOUBLE::query_radius_advanced,
              py::arg("new_data"), py::arg("R"), py::arg("metric") = "euclidean",
              py::arg("return_distance") = false, py::arg("groups") = py::none(),

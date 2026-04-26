@@ -99,6 +99,10 @@ The same fallback flag is also available in standard methods:
 KNN methods are also available in the compiled backend:
 * `query_knn(new_data, k, return_distance=False, groups=None, max_per_group=-1)`
 * `query_knn_batch(new_data, k, return_distance=False, groups=None, max_per_group=-1)`
+  
+KNN methods also support metric selection like advanced radius methods via:
+* `metric`: `"euclidean"`, `"sqeuclidean"`, `"manhattan"`, `"chebyshev"`, `"minkowski"`, `"cosine"`
+* `p`: Minkowski power (used when `metric="minkowski"`).
 
 For KNN, if `groups` and positive `max_per_group` are provided, the method returns up to `k` nearest neighbors while limiting each group count by `max_per_group`.
 
