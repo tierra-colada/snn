@@ -92,6 +92,16 @@ They support:
 * `p`: Minkowski power (used when `metric="minkowski"`).
 * `fallback_to_nearest_if_empty`: if `True`, returns the nearest point when no neighbors are found inside radius (default `False` keeps current behavior).
 
+The same fallback flag is also available in standard methods:
+* `query_radius(..., fallback_to_nearest_if_empty=False)`
+* `query_radius_batch(..., fallback_to_nearest_if_empty=False)`
+
+KNN methods are also available in the compiled backend:
+* `query_knn(new_data, k, return_distance=False, groups=None, max_per_group=-1)`
+* `query_knn_batch(new_data, k, return_distance=False, groups=None, max_per_group=-1)`
+
+For KNN, if `groups` and positive `max_per_group` are provided, the method returns up to `k` nearest neighbors while limiting each group count by `max_per_group`.
+
 Compare this to sklearn's KDTree:
 
 ```python
