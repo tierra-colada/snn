@@ -31,6 +31,7 @@ SOFTWARE.
 #include <tuple>
 #include <string>
 #include <limits>
+#include <climits>
 #include <unordered_map>
 #include <omp.h>
 #include <pybind11/pybind11.h>
@@ -150,17 +151,24 @@ private:
         }
     }
 
+    static int checked_to_int(py::ssize_t v, const char* field_name) {
+        if (v < 0 || v > static_cast<py::ssize_t>(INT_MAX)) {
+            throw std::runtime_error(std::string(field_name) + " is out of supported int range");
+        }
+        return static_cast<int>(v);
+    }
+
     py::array_t<int64_t> to_numpy_indices(const std::vector<int>& src) const {
         py::array_t<int64_t> arr(src.size());
         auto out = arr.mutable_unchecked<1>();
-        for (ssize_t i = 0; i < static_cast<ssize_t>(src.size()); ++i) out(i) = static_cast<int64_t>(src[i]);
+        for (size_t i = 0; i < src.size(); ++i) out(static_cast<py::ssize_t>(i)) = static_cast<int64_t>(src[i]);
         return arr;
     }
 
     py::array_t<T> to_numpy_distances(const std::vector<T>& src) const {
         py::array_t<T> arr(src.size());
         auto out = arr.template mutable_unchecked<1>();
-        for (ssize_t i = 0; i < static_cast<ssize_t>(src.size()); ++i) out(i) = src[i];
+        for (size_t i = 0; i < src.size(); ++i) out(static_cast<py::ssize_t>(i)) = src[i];
         return arr;
     }
 
@@ -192,8 +200,8 @@ public:
         
         auto buf = input_data.request();
         if (buf.ndim != 2) throw std::runtime_error("Input must be 2D array");
-        n = buf.shape[0];
-        d = buf.shape[1];
+        n = checked_to_int(buf.shape[0], "n");
+        d = checked_to_int(buf.shape[1], "d");
         data.resize(n * d);
         mean.resize(d);
         first_pc.resize(d);
@@ -454,7 +462,7 @@ public:
     py::list query_radius_batch(py::array_t<T> new_data, T R, bool fallback_to_nearest_if_empty = false) const {
         auto buf = new_data.request();
         if (buf.ndim != 2 || buf.shape[1] != d) throw std::runtime_error("New data must be 2D array with columns = d");
-        int m = buf.shape[0];
+        int m = checked_to_int(buf.shape[0], "m");
 
         T R_sq = R * R;
         std::vector<T> centered(m * d);
@@ -641,7 +649,7 @@ public:
         auto metric_type = parse_metric(metric);
         auto buf = new_data.request();
         if (buf.ndim != 2 || buf.shape[1] != d) throw std::runtime_error("New data must be 2D array with columns = d");
-        int m = buf.shape[0];
+        int m = checked_to_int(buf.shape[0], "m");
 
         const int* groups_ptr = nullptr;
         if (!groups.is_none()) {
@@ -756,7 +764,7 @@ public:
         }
         auto buf = new_data.request();
         if (buf.ndim != 2 || buf.shape[1] != d) throw std::runtime_error("New data must be 2D array with columns = d");
-        int m = buf.shape[0];
+        int m = checked_to_int(buf.shape[0], "m");
 
         const int* groups_ptr = nullptr;
         if (!groups.is_none()) {

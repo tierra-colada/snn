@@ -58,7 +58,7 @@ def _openblas_library_name(default_name):
     return _env_path("OPENBLAS_LIB_NAME") or default_name
 
 # Platform-specific arguments
-extra_compile_args = ['-O3']
+extra_compile_args = ['/O2'] if os.name == "nt" else ['-O3']
 extra_link_args = []
 libraries = ['blas']
 include_dirs, library_dirs = _openblas_paths_from_env()
