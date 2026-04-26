@@ -401,19 +401,18 @@ public:
             }
         }
 
-        std::vector<T> dot_products(n * m);
-        if constexpr (std::is_same_v<T, float>) {
-            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, n, m, d, 1.0f,
-                        data.data(), d, centered.data(), d, 0.0f, dot_products.data(), m);
-        } else if constexpr (std::is_same_v<T, double>) {
-            cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, n, m, d, 1.0,
-                        data.data(), d, centered.data(), d, 0.0, dot_products.data(), m);
-        }
-
         std::vector<std::vector<int>> all_indices(m);
         #pragma omp parallel for schedule(dynamic)
         for (int j = 0; j < m; j++) {
             T q = q_values[j];
+            std::vector<T> dot_products(n);
+            if constexpr (std::is_same_v<T, float>) {
+                cblas_sgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0f, data.data(), d,
+                            centered.data() + j * d, 1, 0.0f, dot_products.data(), 1);
+            } else if constexpr (std::is_same_v<T, double>) {
+                cblas_dgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0, data.data(), d,
+                            centered.data() + j * d, 1, 0.0, dot_products.data(), 1);
+            }
             auto lower_it = std::lower_bound(sorted_proj_idx.begin(), sorted_proj_idx.end(),
                                              q - R,
                                              [](const auto& p, T val) { return std::get<0>(p) < val; });
@@ -427,7 +426,7 @@ public:
             for (auto it = lower_it; it != upper_it; ++it) {
                 int idx = std::get<1>(*it);
                 T norm_sq = std::get<2>(*it);
-                T dot_xy = dot_products[idx * m + j];
+                T dot_xy = dot_products[idx];
                 T dist_sq = norm_sq + new_norm_sq[j] - T(2.0) * dot_xy;
                 if (dist_sq <= R_sq) indices.push_back(idx);
             }
@@ -481,16 +480,17 @@ public:
                 else new_norm_sq[i] = cblas_ddot(d, centered.data() + i * d, 1, centered.data() + i * d, 1);
             }
 
-            std::vector<T> dot_products(n * m);
-            if constexpr (std::is_same_v<T, float>) {
-                cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, n, m, d, 1.0f, data.data(), d, centered.data(), d, 0.0f, dot_products.data(), m);
-            } else {
-                cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, n, m, d, 1.0, data.data(), d, centered.data(), d, 0.0, dot_products.data(), m);
-            }
-
             #pragma omp parallel for schedule(dynamic)
             for (int j = 0; j < m; j++) {
                 T q = q_values[j];
+                std::vector<T> dot_products(n);
+                if constexpr (std::is_same_v<T, float>) {
+                    cblas_sgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0f, data.data(), d,
+                                centered.data() + j * d, 1, 0.0f, dot_products.data(), 1);
+                } else {
+                    cblas_dgemv(CblasRowMajor, CblasNoTrans, n, d, 1.0, data.data(), d,
+                                centered.data() + j * d, 1, 0.0, dot_products.data(), 1);
+                }
                 auto lower_it = std::lower_bound(sorted_proj_idx.begin(), sorted_proj_idx.end(), q - R,
                                                  [](const auto& cand, T val) { return std::get<0>(cand) < val; });
                 auto upper_it = std::upper_bound(sorted_proj_idx.begin(), sorted_proj_idx.end(), q + R,
@@ -503,7 +503,7 @@ public:
                 for (auto it = lower_it; it != upper_it; ++it) {
                     int idx = std::get<1>(*it);
                     T norm_sq = std::get<2>(*it);
-                    T dot_xy = dot_products[idx * m + j];
+                    T dot_xy = dot_products[idx];
                     T dist_sq = norm_sq + new_norm_sq[j] - T(2.0) * dot_xy;
                     if (dist_sq <= threshold) {
                         indices.push_back(idx);
